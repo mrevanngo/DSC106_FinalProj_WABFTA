@@ -423,8 +423,8 @@ function updateStatCards(frame) {
 // ── GRID CELLS ───────────────────────────────────────────────────────────────
 // Bin scan-angle space into GRID_COLS × GRID_ROWS rectangular cells.
 // Each cell is colored by the mean temperature of all data points inside it.
-const GRID_COLS = 100;
-const GRID_ROWS = 70;
+const GRID_COLS = 50;
+const GRID_ROWS = 35;
 const X_MIN = -0.151, X_MAX = 0.151;
 const Y_MIN = -0.151, Y_MAX = 0.151;
 const CELL_W_ANG = (X_MAX - X_MIN) / GRID_COLS;
