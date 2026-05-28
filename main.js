@@ -159,7 +159,7 @@ fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
         if (!p || /^Z+$/.test(p)) return null;
         return p;
       })
-      .attr('fill', 'none')
+      .attr('fill', '#0a0a0f')
       .attr('stroke', 'rgba(255,255,255,0.45)')
       .attr('stroke-width', 0.5)
       .attr('pointer-events', 'none');
