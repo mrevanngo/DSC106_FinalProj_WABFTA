@@ -76,6 +76,52 @@ const FRAME_STATS = [
   {frame:71, time:"2020-07-30T23:30:04", mean:24.68, min:0.43,  max:40.15},
 ];
 
+// ── Hurricane Isaias (AL092020) · NHC HURDAT2 approximate best track ─────────
+// 6-hourly positions during the Jul 28–30 observation window.
+// Verify exact coordinates at: nhc.noaa.gov/data/hurdat/hurdat2-1851-2020.txt
+const ISAIAS_TRACK = [
+  { iso:"2020-07-28T00:00:00Z", lat:12.2, lon:-55.2, wind:25, status:"Disturbance"        },
+  { iso:"2020-07-28T06:00:00Z", lat:12.5, lon:-57.0, wind:25, status:"Disturbance"        },
+  { iso:"2020-07-28T12:00:00Z", lat:12.9, lon:-58.8, wind:25, status:"Disturbance"        },
+  { iso:"2020-07-28T18:00:00Z", lat:13.2, lon:-60.3, wind:30, status:"Tropical Depression"},
+  { iso:"2020-07-29T00:00:00Z", lat:13.7, lon:-62.2, wind:30, status:"Tropical Depression"},
+  { iso:"2020-07-29T06:00:00Z", lat:14.2, lon:-64.1, wind:35, status:"Tropical Depression"},
+  { iso:"2020-07-29T12:00:00Z", lat:14.8, lon:-66.3, wind:40, status:"Tropical Depression"},
+  { iso:"2020-07-29T18:00:00Z", lat:15.5, lon:-68.4, wind:40, status:"Tropical Depression"},
+  { iso:"2020-07-30T00:00:00Z", lat:16.4, lon:-70.0, wind:45, status:"Tropical Storm"     },
+  { iso:"2020-07-30T06:00:00Z", lat:17.3, lon:-71.8, wind:55, status:"Tropical Storm"     },
+  { iso:"2020-07-30T12:00:00Z", lat:18.2, lon:-73.0, wind:60, status:"Tropical Storm"     },
+  { iso:"2020-07-30T18:00:00Z", lat:19.5, lon:-74.3, wind:65, status:"Hurricane"          },
+];
+
+// Frame 0 starts at 2020-07-28T00:30:05Z; each subsequent frame is ~1 hour later.
+const FRAME0_MS = new Date("2020-07-28T00:30:05Z").getTime();
+
+function getStormState(frame) {
+  const t   = FRAME0_MS + frame * 3600000;
+  const pts = ISAIAS_TRACK.map(d => ({ ...d, ms: new Date(d.iso).getTime() }));
+  if (t <= pts[0].ms) return { ...pts[0], xy: latLonToXY(pts[0].lat, pts[0].lon) };
+  const last = pts[pts.length - 1];
+  if (t >= last.ms)   return { ...last,   xy: latLonToXY(last.lat,   last.lon)   };
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (t >= pts[i].ms && t < pts[i + 1].ms) {
+      const f   = (t - pts[i].ms) / (pts[i + 1].ms - pts[i].ms);
+      const lat  = pts[i].lat  + f * (pts[i + 1].lat  - pts[i].lat);
+      const lon  = pts[i].lon  + f * (pts[i + 1].lon  - pts[i].lon);
+      const wind = pts[i].wind + f * (pts[i + 1].wind - pts[i].wind);
+      return { lat, lon, wind, status: pts[i].status, xy: latLonToXY(lat, lon) };
+    }
+  }
+  return null;
+}
+
+function stormColor(status) {
+  if (status === 'Hurricane')           return '#ff3b3b';
+  if (status === 'Tropical Storm')      return '#ff8c00';
+  if (status === 'Tropical Depression') return '#ffd700';
+  return '#aaaaaa';
+}
+
 // ── Color scale (shared across map, legend, histogram) ─────────────────────
 const COLOR_DOMAIN = [16, 32];
 const color = d3.scaleSequential()
@@ -92,18 +138,17 @@ const mapSvg = d3.select('#map-svg')
 const xScale = d3.scaleLinear().domain([-0.151, 0.151]).range([0, MAP_W]);
 const yScale = d3.scaleLinear().domain([0.151, -0.151]).range([0, MAP_H]);
 
-// Grouping map for later targeting
-const mapG  = mapSvg.append('g').attr('id', 'map-g');
-const dataG = mapG.append('g').attr('id', 'data-g');  // data cells — rendered below coastlines
-const geoG  = mapG.append('g').attr('id', 'geo-g');   // coastlines — always on top
+const mapG   = mapSvg.append('g').attr('id', 'map-g');
+const dataG  = mapG.append('g').attr('id', 'data-g');   // SST cells — below coastlines
+const geoG   = mapG.append('g').attr('id', 'geo-g');    // coastlines — above SST cells
+const stormG = mapG.append('g').attr('id', 'storm-g');  // storm track — topmost layer
 
 // GOES-16 constants
-const H = 42164.16;
+const H  = 42164.16;
 const Re = 6378.137;
 const Rp = 6356.7523;
 const lon0 = -75.2 * Math.PI / 180;
 
-//lat/lon to x/y
 function latLonToXY(latDeg, lonDeg) {
   const lat = latDeg * Math.PI / 180;
   const lon = lonDeg * Math.PI / 180;
@@ -115,7 +160,6 @@ function latLonToXY(latDeg, lonDeg) {
   const sy = -rc * Math.cos(latC) * Math.sin(lon - lon0);
   const sz = rc * Math.sin(latC);
 
-  // Point not visible from satellite
   if (H * (H - sx) < sy * sy + (Re / Rp) * (Re / Rp) * sz * sz) return null;
 
   const scanX = Math.atan(-sy / sx);
@@ -165,43 +209,37 @@ fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
       .attr('pointer-events', 'none');
   });
 
-//Zoom/Pan
-const zoom = d3.zoom()
-  .scaleExtent([1, 12])          
-  .translateExtent([[0, 0], [MAP_W, MAP_H]])  
-  .on('zoom', (event) => {
-    mapG.attr('transform', event.transform);
-  });
+// ── STORM TRACK LAYER ────────────────────────────────────────────────────────
+// Full projected track as a faint dashed guide (drawn once at startup)
+const allTrackXY = ISAIAS_TRACK.map(d => latLonToXY(d.lat, d.lon)).filter(Boolean);
+stormG.append('polyline')
+  .attr('points', allTrackXY.map(p => p.join(',')).join(' '))
+  .attr('fill', 'none')
+  .attr('stroke', '#ffffff')
+  .attr('stroke-width', 1)
+  .attr('stroke-dasharray', '3 6')
+  .attr('opacity', 0.18)
+  .attr('pointer-events', 'none');
 
-mapSvg.call(zoom);
+// Past track segment — color + length update each frame
+const stormTrackPast = stormG.append('polyline')
+  .attr('fill', 'none')
+  .attr('stroke-width', 2.5)
+  .attr('stroke-linecap', 'round')
+  .attr('stroke-linejoin', 'round')
+  .attr('opacity', 0.9)
+  .attr('pointer-events', 'none');
 
-// Reset button — double-click to reset
-mapSvg.on('dblclick.zoom', () => {
-  mapSvg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
-});
-
-//Conversion function from GOES-16 x/y to lat/lon
-function scanAngleToLatLon(sx, sy) {
-  const sinX = Math.sin(sx), cosX = Math.cos(sx);
-  const sinY = Math.sin(sy), cosY = Math.cos(sy);
-
-  const a = sinX * sinX + cosX * cosX * (cosY * cosY + (Re/Rp) * (Re/Rp) * sinY * sinY);
-  const b = -2 * H * cosX * cosY;
-  const c = H * H - Re * Re;
-
-  const disc = b * b - 4 * a * c;
-  if (disc < 0) return null;
-
-  const rs = (-b - Math.sqrt(disc)) / (2 * a);
-  const Sx = rs * cosX * cosY - H;
-  const Sy = rs * sinX;
-  const Sz = -rs * cosX * sinY; 
-
-  const lon = Math.atan(Sy / -Sx) + lon0;
-  const lat = Math.atan((Re/Rp) * (Re/Rp) * Sz / Math.sqrt(Sx*Sx + Sy*Sy));
-
-  return [lon * 180/Math.PI, lat * 180/Math.PI];
-}
+// Storm eye marker
+let currentStormState = null;
+const stormEyeG = stormG.append('g').attr('class', 'storm-eye').attr('display', 'none').style('cursor', 'pointer');
+stormEyeG.append('circle').attr('class', 'eye-ring').attr('r', 11).attr('fill', 'none').attr('stroke-width', 2);
+stormEyeG.append('circle').attr('class', 'eye-dot').attr('r', 5);
+stormEyeG.append('text').attr('class', 'eye-label')
+  .attr('dy', -16).attr('text-anchor', 'middle')
+  .attr('font-size', 10).attr('font-weight', 700)
+  .attr('fill', '#fff').attr('pointer-events', 'none')
+  .attr('paint-order', 'stroke').attr('stroke', '#000').attr('stroke-width', 2);
 
 // Tooltip
 const tooltip = d3.select('#tooltip');
@@ -218,6 +256,57 @@ function hideTooltip() {
   tooltip.classed('hidden', true);
 }
 
+// Rich tooltip when hovering the storm eye
+stormEyeG
+  .on('mouseover', (event) => {
+    if (!currentStormState) return;
+    const { wind, status, lat, lon } = currentStormState;
+    tooltip.classed('hidden', false)
+      .style('left', (event.clientX + 14) + 'px')
+      .style('top',  (event.clientY - 32) + 'px')
+      .html(`<strong>Isaias</strong><br>${status}<br>${Math.round(wind)} kt &nbsp;(${Math.round(wind * 1.852)} km/h)<br>${lat.toFixed(1)}°N, ${Math.abs(lon).toFixed(1)}°W`);
+  })
+  .on('mousemove', (event) => {
+    tooltip.style('left', (event.clientX + 14) + 'px').style('top', (event.clientY - 32) + 'px');
+  })
+  .on('mouseleave', hideTooltip);
+
+// ── ZOOM/PAN ────────────────────────────────────────────────────────────────
+const zoom = d3.zoom()
+  .scaleExtent([1, 12])
+  .translateExtent([[0, 0], [MAP_W, MAP_H]])
+  .on('zoom', (event) => {
+    mapG.attr('transform', event.transform);
+  });
+
+mapSvg.call(zoom);
+mapSvg.on('dblclick.zoom', () => {
+  mapSvg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
+});
+
+// Reverse-projection (GOES scan angle → lat/lon)
+function scanAngleToLatLon(sx, sy) {
+  const sinX = Math.sin(sx), cosX = Math.cos(sx);
+  const sinY = Math.sin(sy), cosY = Math.cos(sy);
+
+  const a = sinX * sinX + cosX * cosX * (cosY * cosY + (Re/Rp) * (Re/Rp) * sinY * sinY);
+  const b = -2 * H * cosX * cosY;
+  const c = H * H - Re * Re;
+
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+
+  const rs = (-b - Math.sqrt(disc)) / (2 * a);
+  const Sx = rs * cosX * cosY - H;
+  const Sy = rs * sinX;
+  const Sz = -rs * cosX * sinY;
+
+  const lon = Math.atan(Sy / -Sx) + lon0;
+  const lat = Math.atan((Re/Rp) * (Re/Rp) * Sz / Math.sqrt(Sx*Sx + Sy*Sy));
+
+  return [lon * 180/Math.PI, lat * 180/Math.PI];
+}
+
 // ── TIME SERIES CHART ────────────────────────────────────────────────────────
 const TS_M = { top: 18, right: 16, bottom: 40, left: 46 };
 const TS_FULL_W = 348, TS_FULL_H = 200;
@@ -230,7 +319,6 @@ const tsSvg = d3.select('#ts-svg')
 
 const tsG = tsSvg.append('g').attr('transform', `translate(${TS_M.left},${TS_M.top})`);
 
-// Day-boundary separators (frames 0, 24, 48)
 const dayStarts = [0, 24, 48];
 const dayLabels = ['Jul 28', 'Jul 29', 'Jul 30'];
 
@@ -259,7 +347,6 @@ tsG.append('g')
   .call(d3.axisLeft(yTs).ticks(5).tickFormat(d => `${d}°`))
   .call(g => g.select('.domain').attr('stroke', '#ddd'));
 
-// Axis label
 tsG.append('text')
   .attr('class', 'axis-label')
   .attr('transform', 'rotate(-90)')
@@ -267,7 +354,7 @@ tsG.append('text')
   .attr('text-anchor', 'middle')
   .text('Mean SST (°C)');
 
-// Anomaly region markers (frames 39 & 41)
+// Anomaly markers (data gaps at frames 39 & 41)
 [39, 41].forEach(f => {
   tsG.append('rect')
     .attr('x', xTs(f) - 4).attr('y', 0)
@@ -280,7 +367,25 @@ tsG.append('text')
     .text('⚠');
 });
 
-// Line path (skipping anomalous frames)
+// Storm intensity milestones on the time series
+// Frame 18 ≈ Jul 28 18Z (TD formation), Frame 48 ≈ Jul 30 00Z (TS), Frame 66 ≈ Jul 30 18Z (HU)
+[
+  { frame: 18, label: 'TD forms',  color: '#ffd700' },
+  { frame: 48, label: 'TS Isaias', color: '#ff8c00' },
+  { frame: 66, label: 'Hurricane', color: '#ff3b3b' },
+].forEach(({ frame, label, color: c }) => {
+  tsG.append('line')
+    .attr('x1', xTs(frame)).attr('x2', xTs(frame))
+    .attr('y1', 0).attr('y2', tsH)
+    .attr('stroke', c).attr('stroke-width', 1.2)
+    .attr('stroke-dasharray', '3 3').attr('opacity', 0.8);
+  tsG.append('text')
+    .attr('x', xTs(frame) + 2).attr('y', 26)
+    .attr('font-size', 7).attr('fill', c).attr('font-weight', 700)
+    .text(label);
+});
+
+// SST line (skip anomalous frames)
 const validStats = FRAME_STATS.filter(d => d.mean !== null);
 const tsLine = d3.line()
   .x(d => xTs(d.frame))
@@ -294,7 +399,6 @@ tsG.append('path')
   .attr('stroke-width', 2)
   .attr('d', tsLine);
 
-// Dots for valid frames
 tsG.selectAll('.ts-dot')
   .data(validStats)
   .enter().append('circle')
@@ -304,7 +408,7 @@ tsG.selectAll('.ts-dot')
   .attr('r', 2)
   .attr('fill', '#e07b39');
 
-// Cursor (vertical line + dot that moves with current frame)
+// Cursor (vertical line + dot that tracks current frame)
 const tsCursor = tsG.append('line')
   .attr('y1', 0).attr('y2', tsH)
   .attr('stroke', '#333').attr('stroke-width', 1.5)
@@ -365,19 +469,18 @@ const binner = d3.bin().domain([0, 38]).thresholds(38);
 
 function drawHistogram(data) {
   const temps = data.map(d => d.temp).filter(t => t >= 0 && t <= 38);
-  const bins = binner(temps);
+  const bins  = binner(temps);
   yHist.domain([0, d3.max(bins, b => b.length)]);
   yHistAxis.call(d3.axisLeft(yHist).ticks(4).tickFormat(d3.format('.2s')));
 
   const bars = histG.selectAll('.bar').data(bins);
-  bars.enter().append('rect')
-    .attr('class', 'bar')
+  bars.enter().append('rect').attr('class', 'bar')
     .merge(bars)
-    .attr('x', d => xHist(d.x0) + 1)
-    .attr('y', d => yHist(d.length))
-    .attr('width', d => Math.max(0, xHist(d.x1) - xHist(d.x0) - 1))
+    .attr('x',      d => xHist(d.x0) + 1)
+    .attr('y',      d => yHist(d.length))
+    .attr('width',  d => Math.max(0, xHist(d.x1) - xHist(d.x0) - 1))
     .attr('height', d => hH - yHist(d.length))
-    .attr('fill', d => color((d.x0 + d.x1) / 2));
+    .attr('fill',   d => color((d.x0 + d.x1) / 2));
   bars.exit().remove();
 }
 
@@ -416,13 +519,48 @@ function updateStatCards(frame) {
 
   d3.select('#stat-time').text(dateStr);
   d3.select('#stat-mean').text(s.mean !== null ? `${s.mean.toFixed(2)}°C` : 'N/A');
-  d3.select('#stat-min').text(s.min !== null ? `${s.min.toFixed(2)}°C` : 'N/A (artifact)');
-  d3.select('#stat-max').text(s.max !== null ? `${s.max.toFixed(2)}°C` : 'N/A (artifact)');
+  d3.select('#stat-min').text(s.min  !== null ? `${s.min.toFixed(2)}°C`  : 'N/A (artifact)');
+  d3.select('#stat-max').text(s.max  !== null ? `${s.max.toFixed(2)}°C`  : 'N/A (artifact)');
+}
+
+// ── STORM OVERLAY ─────────────────────────────────────────────────────────────
+function updateStormOverlay(frame) {
+  const state = getStormState(frame);
+  currentStormState = state;
+
+  if (!state || !state.xy) { stormEyeG.attr('display', 'none'); return; }
+
+  const [px, py] = state.xy;
+  const col = stormColor(state.status);
+
+  // Position + color the eye marker
+  stormEyeG.attr('display', null).attr('transform', `translate(${px},${py})`);
+  stormEyeG.select('.eye-ring').attr('stroke', col);
+  stormEyeG.select('.eye-dot').attr('fill', col);
+  stormEyeG.select('.eye-label').text('Isaias');
+
+  // Past track: all HURDAT2 points up to current time + interpolated current position
+  const t = FRAME0_MS + frame * 3600000;
+  const pastXY = ISAIAS_TRACK
+    .filter(d => new Date(d.iso).getTime() <= t)
+    .map(d => latLonToXY(d.lat, d.lon))
+    .filter(Boolean);
+  pastXY.push(state.xy);
+  stormTrackPast.attr('points', pastXY.map(p => p.join(',')).join(' ')).attr('stroke', col);
+
+  // Update storm stat card
+  const shortStatus = {
+    'Disturbance':        'Disturbance',
+    'Tropical Depression':'Trop. Depression',
+    'Tropical Storm':     'Tropical Storm',
+    'Hurricane':          'Hurricane Cat. 1',
+  }[state.status] || state.status;
+  d3.select('#stat-storm-status').text(shortStatus);
+  d3.select('#stat-storm-wind').text(`${Math.round(state.wind)} kt winds`);
+  d3.select('#stat-storm-name').style('color', col);
 }
 
 // ── GRID CELLS ───────────────────────────────────────────────────────────────
-// Bin scan-angle space into GRID_COLS × GRID_ROWS rectangular cells.
-// Each cell is colored by the mean temperature of all data points inside it.
 const GRID_COLS = 50;
 const GRID_ROWS = 35;
 const X_MIN = -0.151, X_MAX = 0.151;
@@ -453,31 +591,27 @@ function drawFrame(frameNum) {
   const s = FRAME_STATS[frameNum];
   const d = new Date(s.time);
   const hhmm = s.time.substring(11, 16);
-  d3.select('#timeLabel')
-    .text(`Frame ${frameNum} | ${d.toDateString()} ${hhmm} UTC`);
+  d3.select('#timeLabel').text(`Frame ${frameNum} | ${d.toDateString()} ${hhmm} UTC`);
 
   updateStatCards(frameNum);
   updateTsCursor(frameNum);
+  updateStormOverlay(frameNum);
 
   d3.json(`data/frame_${frameNum}.json`).then(data => {
     const gridCells = buildGrid(data);
 
     const rects = dataG.selectAll('.cell').data(gridCells, d => d.key);
-
     rects.enter().append('rect')
       .attr('class', 'cell')
       .on('mouseover', showTooltip)
       .on('mousemove', showTooltip)
       .on('mouseleave', hideTooltip)
       .merge(rects)
-      // x: left edge of cell in pixel space
-      .attr('x', d => xScale(X_MIN + d.col * CELL_W_ANG))
-      // y: top edge of cell — yScale is inverted (higher scan-y → smaller pixel-y)
-      .attr('y', d => yScale(Y_MIN + (d.row + 1) * CELL_H_ANG))
+      .attr('x',      d => xScale(X_MIN + d.col * CELL_W_ANG))
+      .attr('y',      d => yScale(Y_MIN + (d.row + 1) * CELL_H_ANG))
       .attr('width',  CELL_W_PX)
       .attr('height', CELL_H_PX)
-      .attr('fill', d => color(d.mean));
-
+      .attr('fill',   d => color(d.mean));
     rects.exit().remove();
 
     drawHistogram(data);
@@ -486,12 +620,10 @@ function drawFrame(frameNum) {
 
 // ── PLAYBACK CONTROLS ────────────────────────────────────────────────────────
 let curFrame = 0;
-let running = false;
+let running  = false;
 let playInterval = null;
 
-function getSpeed() {
-  return +d3.select('#speed-select').property('value');
-}
+function getSpeed() { return +d3.select('#speed-select').property('value'); }
 
 function startPlay() {
   running = true;
@@ -511,15 +643,8 @@ function stopPlay() {
 }
 
 d3.select('#play-btn').on('click', () => running ? stopPlay() : startPlay());
-
-d3.select('#speed-select').on('change', () => {
-  if (running) { stopPlay(); startPlay(); }
-});
-
-d3.select('#slider').on('input', function () {
-  curFrame = +this.value;
-  drawFrame(curFrame);
-});
+d3.select('#speed-select').on('change', () => { if (running) { stopPlay(); startPlay(); } });
+d3.select('#slider').on('input', function () { curFrame = +this.value; drawFrame(curFrame); });
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
 drawLegend();

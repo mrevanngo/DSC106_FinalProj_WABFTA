@@ -48,7 +48,7 @@ h1 {
 /* ── Stat cards ── */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
   margin-bottom: 28px;
 }
@@ -277,6 +277,15 @@ footer {
   margin-top: 36px;
   font-size: 11px;
   color: #aaa;
+}
+
+/* ── Storm card ── */
+.storm-card .stat-value {
+  font-size: 1.6rem;
+}
+
+.storm-name {
+  transition: color 0.4s ease;
 }
 
 /* ── D3 chart axes ── */

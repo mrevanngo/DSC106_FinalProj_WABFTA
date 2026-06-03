@@ -38,6 +38,12 @@
       <div class="stat-value" id="stat-max">33.69°C</div>
       <div class="stat-sub">warmest observed pixel</div>
     </div>
+    <div class="stat-card storm-card">
+      <div class="stat-label">ACTIVE STORM</div>
+      <div class="stat-value storm-name" id="stat-storm-name">Isaias</div>
+      <div class="stat-sub" id="stat-storm-status">Disturbance</div>
+      <div class="stat-sub" id="stat-storm-wind">~25 kt winds</div>
+    </div>
   </div>
 
   <div class="main-layout">
@@ -91,17 +97,20 @@
   <div id="tooltip" class="tooltip hidden"></div>
 
   <section class="writeup">
-    <h2>Design &amp; Process</h2>
+    <h2>What to Look For</h2>
 
-    <h3>Progress</h3>
-    <p>So far, our team has built the initial structure of our explorable explanation webpage, which focuses on how sea surface temperature shifts across the Western Hemisphere over a 72-hour period. We started by working with GOES-16 NOAA satellite sea surface temperature data and preprocessing it into a format that could be displayed interactively in D3.js. Since the original data is spatial, we transformed the coordinate values into x/y screen positions so they could be accurately rendered on the webpage, while also experimenting with different scaling methods to make the map clearer and easier to interpret. We also added a continent outline to give viewers more geographic context, so the temperature patterns are not shown as abstract pixels floating on a blank canvas.</p>
-    <p>In the current prototype, we have at least one working visualization with interaction, including a time-based animation/slider that lets users move through the 72 hourly frames. We also added supporting charts, including a mean sea surface temperature line chart and a temperature distribution histogram, so users can connect the spatial patterns on the map with broader statistical trends. Another major update is that we added zoom and pan functionality, which allows viewers to explore specific regions of the Western Hemisphere in more detail instead of only viewing the full map at once. Overall, our prototype now has the basic webpage layout, main visualization, interaction structure, and supporting explanatory elements needed for the final explorable explanation.</p>
+    <h3>SST as Storm Fuel</h3>
+    <p>Tropical cyclones are heat engines: they extract energy from warm ocean water and release it as wind and rain. Scientists generally set <strong>26°C as the threshold</strong> needed to sustain a tropical storm. In this visualization the Caribbean and Gulf of Mexico stay well above that mark throughout the 72-hour window — the bright orange and yellow pixels in the map represent water between 28–33°C, exactly the thermal reservoir that Isaias was drawing from as it organized and intensified westward across the Lesser Antilles.</p>
+    <p>Watch the storm marker as you scrub through the frames. On July 28 it is still a disorganized tropical wave in the far eastern Atlantic, moving across relatively cooler open-ocean water (~27°C). By July 30 it has crossed into the warmest part of the Caribbean basin and rapidly strengthened from a tropical depression into a hurricane in less than 36 hours — a process meteorologists call <em>rapid intensification</em>. The mean SST chart on the right shows a corresponding uptick in basin-wide temperatures over that same period.</p>
 
-    <h3>Challenges</h3>
-    <p>The most challenging part of the project to design has been converting the satellite data into a clear and usable interactive visualization. Because the raw data is based on geographic/satellite coordinates, we had to figure out how to transform those values into x/y positions that would display correctly in the browser. This was especially challenging because small changes in scaling could make the visualization look distorted, too zoomed in, or too difficult to interpret. Adding the continent outline also required us to think carefully about alignment, since the outline needed to match the temperature pixels closely enough to provide context without distracting from the actual data.</p>
-    <p>Another challenge has been balancing visual complexity with performance and readability. The dataset contains many temperature points across many time frames, so we had to design the page in a way that allows smooth interaction without overwhelming the viewer. We also had to decide which interactions actually help explain the data, rather than adding features just for the sake of interactivity. Moving forward, we plan to refine the annotations, explanatory text, and visualization so the webpage feels more like an explorable explanation instead of just a dashboard, which matches the final project goal of using interactive visualizations to explain a complex subject.</p>
+    <h3>Reading the Map</h3>
+    <p>The color scale runs from deep purple (cool, ~16°C) through orange to yellow (warm, ~32°C). The <strong>solid track line</strong> traces Isaias's path up to the current frame; the <strong>faint dashed line</strong> shows where it will go. Hover over the storm eye marker for wind speed and position. You can also zoom and pan — try zooming into the Caribbean to see how closely the storm tracks along the 29–31°C band. The two red warning triangles on the mean SST chart flag frames with incomplete satellite coverage (sensor noise or cloud interference).</p>
 
-    <footer>DSC 106 Project 3 &middot; UC San Diego &middot; Data: NOAA GOES-16 via AWS Open Data</footer>
+    <h3>Challenges &amp; Design Decisions</h3>
+    <p>Converting GOES-16 satellite data to screen coordinates required implementing the full GOES-R fixed-grid projection, which maps satellite scan angles to geographic positions. Small errors in that transform produce visually distorted maps, so we validated the output against known coastline positions. Rendering 72 hourly frames of thousands of SST pixels at interactive speeds required binning raw data points into a 50×35 grid before drawing, which reduces draw calls by roughly 40× while preserving the spatial structure of the SST field.</p>
+    <p>The storm track is derived from NHC HURDAT2 best-track data and interpolated to each hourly frame. Because HURDAT2 records positions every 6 hours, the animated eye position is linearly interpolated between advisory fixes — an approximation that is accurate enough to illustrate the SST–storm relationship but should not be treated as a precise storm-center location for any given hour.</p>
+
+    <footer>DSC 106 Project 3 &middot; UC San Diego &middot; Data: NOAA GOES-16 via AWS Open Data &middot; Storm track: NHC HURDAT2 AL092020</footer>
   </section>
 
 </body>
