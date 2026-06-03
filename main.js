@@ -216,9 +216,9 @@ stormG.append('polyline')
   .attr('points', allTrackXY.map(p => p.join(',')).join(' '))
   .attr('fill', 'none')
   .attr('stroke', '#ffffff')
-  .attr('stroke-width', 1)
-  .attr('stroke-dasharray', '3 6')
-  .attr('opacity', 0.18)
+  .attr('stroke-width', 1.5)
+  .attr('stroke-dasharray', '4 5')
+  .attr('opacity', 0.45)
   .attr('pointer-events', 'none');
 
 // Past track segment — color + length update each frame
@@ -233,8 +233,8 @@ const stormTrackPast = stormG.append('polyline')
 // Storm eye marker
 let currentStormState = null;
 const stormEyeG = stormG.append('g').attr('class', 'storm-eye').attr('display', 'none').style('cursor', 'pointer');
-stormEyeG.append('circle').attr('class', 'eye-ring').attr('r', 11).attr('fill', 'none').attr('stroke-width', 2);
-stormEyeG.append('circle').attr('class', 'eye-dot').attr('r', 5);
+stormEyeG.append('circle').attr('class', 'eye-ring').attr('r', 14).attr('fill', 'none').attr('stroke-width', 2.5);
+stormEyeG.append('circle').attr('class', 'eye-dot').attr('r', 6);
 stormEyeG.append('text').attr('class', 'eye-label')
   .attr('dy', -16).attr('text-anchor', 'middle')
   .attr('font-size', 10).attr('font-weight', 700)
